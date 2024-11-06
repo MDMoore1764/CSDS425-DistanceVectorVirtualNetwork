@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection.Emit;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -39,14 +40,14 @@ namespace Simulator.Client
             this.routerTable = [];
 
 
-            foreach(var destination in Server.Server.AVAILABLE_IDENTITIES)
+            foreach (var destination in Server.Server.AVAILABLE_IDENTITIES)
             {
-                if(destination == this.identity)
+                if (destination == this.identity)
                 {
                     continue;
                 }
 
-                this.routerTable[destination] =  Server.Server.DEFAULT_DISTANCE;
+                this.routerTable[destination] = Server.Server.DEFAULT_DISTANCE;
             }
         }
 
@@ -68,47 +69,47 @@ namespace Simulator.Client
 
         public async Task ListenForUpdatesAsync()
         {
-            if(this.clientSocket == null || !this.clientSocket.Connected)
+            if (this.clientSocket == null || !this.clientSocket.Connected)
             {
                 throw new InvalidOperationException("The client is not connected!");
             }
 
-            byte[] buffer = new byte[Server.Server.WINDOW_SIZE];
+            try
+            {
 
+            byte[] buffer = new byte[Server.Server.WINDOW_SIZE];
 
             while (this.clientSocket.Connected)
             {
+                if(this.identity == 'z')
+                {
+                    Console.WriteLine("z");
+                }
+
+                //It's possible to receive multiple pending messages. Separate these into jtokens
                 int nReceived = await clientSocket.ReceiveAsync(buffer);
-                var decoded = Encoding.UTF8.GetString(buffer, 0, nReceived);
+                var messages = Message.Decode(buffer[..nReceived]);
 
-                JObject message = JObject.Parse(decoded);
 
-                if (message == null)
-                {
-                    continue;
+                foreach(var message in messages){
+                    switch (message.Type)
+                    {
+                        case MessageType.UPDATE:
+                            HandleMessageReceivedAsync((UpdateMessage)message);
+                            break;
+                    }
                 }
-
-                var messageTypeValue = message.GetValue("Type");
-                if (messageTypeValue == null)
-                {
-                    //TODO: Logic for incorrect message received.
-                    continue;
-                }
-
-                var messageType = (MessageType)messageTypeValue.Value<int>();
-
-                switch (messageType)
-                {
-                    case MessageType.UPDATE:
-                        var updateMessage = message.ToObject<UpdateMessage>()!;
-                        _ = Task.Run(() => HandleMessageReceivedAsync(updateMessage));
-                        break;
-                }
+            }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"An error occurred while listening for updates: {ex.Message}");
+                throw;
             }
         }
 
-
-        private async Task HandleMessageReceivedAsync(UpdateMessage message)
+        private static object routerTableUpdateLock = new();
+        private void HandleMessageReceivedAsync(UpdateMessage message)
         {
             Console.WriteLine($"Client {this.identity} - received update message from {message.Identity}.");
 
@@ -119,7 +120,7 @@ namespace Simulator.Client
                 return;
             }
 
-            if(this.identity == 'z')
+            if (this.identity == 'z')
             {
                 Console.WriteLine("debug");
             }
@@ -151,7 +152,7 @@ namespace Simulator.Client
                 var updateMessage = new UpdateMessage(this.identity, this.routerTable);
                 var encoded = updateMessage.Encode();
 
-                await this.clientSocket.SendAsync(encoded);
+                _ = this.clientSocket.SendAsync(encoded);
             }
         }
 

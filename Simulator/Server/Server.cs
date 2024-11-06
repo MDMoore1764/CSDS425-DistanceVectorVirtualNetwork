@@ -9,6 +9,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
+using System.Timers;
 
 namespace Simulator.Server
 {
@@ -52,63 +53,63 @@ namespace Simulator.Server
         public static readonly int WINDOW_SIZE = short.MaxValue;
         public Task AcceptClientsAsync(CancellationToken cancellationToken = default)
         {
+            //Create accept loop in separate thread.
             return Task.Run(async () =>
             {
-                while (!cancellationToken.IsCancellationRequested)
+                try
                 {
-                    var client = await this.serverSocket.AcceptAsync();
-
-
-                    if (client == null)
+                    while (!cancellationToken.IsCancellationRequested)
                     {
-                        continue;
-                    }
+                        var client = await this.serverSocket.AcceptAsync();
 
-                    _ = HandleClientAsync(client);
+                        if (client == null)
+                        {
+                            continue;
+                        }
+
+                        //Handle client in a separate thread.
+                        _ = Task.Run(() => HandleClientAsync(client));
+                    }
                 }
-            });
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"An error occurred while accepting clients: {ex.Message}");
+                    throw;
+                }
+            }, cancellationToken);
         }
 
-        private Task HandleClientAsync(Socket client)
+        private async Task HandleClientAsync(Socket client)
         {
-            return Task.Run(async () =>
+            try
             {
                 byte[] buffer = new byte[WINDOW_SIZE];
 
                 while (client.Connected)
                 {
                     int nReceived = await client.ReceiveAsync(buffer);
-                    var decoded = Encoding.UTF8.GetString(buffer, 0, nReceived);
+                    var messages = Message.Decode(buffer[..nReceived]);
 
-                    JObject message = JObject.Parse(decoded);
 
-                    if (message == null)
+                    foreach (var message in messages)
                     {
-                        continue;
-                    }
-
-                    var messageTypeValue = message.GetValue("Type");
-                    if (messageTypeValue == null)
-                    {
-                        //TODO: Logic for incorrect message received.
-                        continue;
-                    }
-
-                    var messageType = (MessageType)messageTypeValue.Value<int>();
-
-                    switch (messageType)
-                    {
-                        case MessageType.JOIN:
-                            var joinMessage = message.ToObject<JoinMessage>();
-                            _ = HandleMessageReceivedAsync(client, joinMessage);
-                            break;
-                        case MessageType.UPDATE:
-                            var updateMessage = message.ToObject<UpdateMessage>();
-                            _ = HandleMessageReceivedAsync(client, updateMessage);
-                            break;
+                        switch (message.Type)
+                        {
+                            case MessageType.JOIN:
+                                await HandleMessageReceivedAsync(client, (JoinMessage)message);
+                                break;
+                            case MessageType.UPDATE:
+                                await HandleMessageReceivedAsync(client, (UpdateMessage)message);
+                                break;
+                        }
                     }
                 }
-            });
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"An error occurred while handling client: {ex.Message}");
+                throw;
+            }
         }
 
         private async Task HandleMessageReceivedAsync(Socket sender, JoinMessage message)
@@ -130,10 +131,12 @@ namespace Simulator.Server
                 var updateMessage = new UpdateMessage(client.Key, this.initialDistances[client.Key]);
                 var encoded = updateMessage.Encode();
 
-                _ = client.Value.SendAsync(encoded);
+                await client.Value.SendAsync(encoded);
             }
         }
 
+        private TimeSpan lastActivityPrintDelay = TimeSpan.FromSeconds(2);
+        private System.Timers.Timer routingTablePrintoutTimer;
         private async Task HandleMessageReceivedAsync(Socket sender, UpdateMessage message)
         {
             Console.WriteLine($"Received updated routing table from {message.Identity}.");
@@ -147,10 +150,18 @@ namespace Simulator.Server
             Console.WriteLine($"{message.Identity}: Sending updated routing table to connected clients: {string.Join(",", connectedClientIdentities)}.");
             foreach (var connectedClient in connectedClients)
             {
-                _ = connectedClient.SendAsync(encoded);
+                await connectedClient.SendAsync(encoded);
             }
 
-            lock (Locks.LoggingLock)
+
+            if(routingTablePrintoutTimer != null)
+            {
+                routingTablePrintoutTimer.Enabled = false;
+                routingTablePrintoutTimer.Close();
+            }
+
+            routingTablePrintoutTimer = new System.Timers.Timer();
+            routingTablePrintoutTimer.Elapsed += (a, b) =>
             {
                 Console.WriteLine("Routing Table:");
                 foreach (var pair in this.finalDistances)
@@ -161,7 +172,13 @@ namespace Simulator.Server
                         Console.WriteLine($"\t{pair.Key} -> {fp.Key}: {fp.Value}");
                     }
                 }
-            }
+
+                routingTablePrintoutTimer.Enabled = false;
+            };
+
+            routingTablePrintoutTimer.Interval = lastActivityPrintDelay.TotalMilliseconds;
+            routingTablePrintoutTimer.Enabled = true;
+            routingTablePrintoutTimer.Start();
         }
 
         private bool AllClientsConnected()
