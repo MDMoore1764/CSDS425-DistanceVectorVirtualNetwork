@@ -8,11 +8,13 @@ namespace Simulator.Messaging
 {
     internal class UpdateMessage : Message
     {
-        public UpdateMessage(Dictionary<char, int> distanceVector) : base(MessageType.UPDATE)
+        public UpdateMessage(char identity, Dictionary<char, int> distanceVector) : base(MessageType.UPDATE)
         {
+            Identity = identity;
             DistanceVector = distanceVector;
         }
 
+        public char Identity { get; }
         public Dictionary<char, int> DistanceVector { get; }
     }
 }

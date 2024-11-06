@@ -1,6 +1,7 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Simulator.Messaging;
+using Simulator.ThreadLogger;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,6 +14,8 @@ namespace Simulator.Server
 {
     internal class Server
     {
+        public const int DEFAULT_DISTANCE = -1;
+
         private const string CONFIGURATION_FILE = "Server/Configuration/InitialDistances.json";
         public static readonly HashSet<char> AVAILABLE_IDENTITIES = new HashSet<char>
         {
@@ -27,6 +30,7 @@ namespace Simulator.Server
         private Dictionary<char, Socket> connectedClients;
 
         private Dictionary<char, Dictionary<char, int>> initialDistances;
+        private Dictionary<char, Dictionary<char, int>> finalDistances;
 
         private Socket serverSocket;
         public Server(int port = 0)
@@ -36,6 +40,7 @@ namespace Simulator.Server
 
             var jsonString = File.ReadAllText(CONFIGURATION_FILE);
             this.initialDistances = JsonConvert.DeserializeObject<Dictionary<char, Dictionary<char, int>>>(jsonString)!;
+            this.finalDistances = JsonConvert.DeserializeObject<Dictionary<char, Dictionary<char, int>>>(jsonString)!;
 
 
             this.serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -122,16 +127,41 @@ namespace Simulator.Server
             //Send update message to all clients with their corresponding initial distances.
             foreach (var client in this.connectedClients)
             {
-                var updateMessage = new UpdateMessage(this.initialDistances[client.Key]);
+                var updateMessage = new UpdateMessage(client.Key, this.initialDistances[client.Key]);
                 var encoded = updateMessage.Encode();
 
-                await client.Value.SendAsync(encoded);
+                _ = client.Value.SendAsync(encoded);
             }
         }
 
         private async Task HandleMessageReceivedAsync(Socket sender, UpdateMessage message)
         {
-            Console.WriteLine("TODO: Update Message");
+            Console.WriteLine($"Received updated routing table from {message.Identity}.");
+
+            this.finalDistances[message.Identity] = message.DistanceVector;
+
+            var encoded = message.Encode();
+            var connectedClientIdentities = this.initialDistances[message.Identity].Where(p => p.Key != message.Identity && p.Value != DEFAULT_DISTANCE).Select(p => p.Key).ToHashSet();
+            var connectedClients = this.connectedClients.Where(p => connectedClientIdentities.Contains(p.Key)).Select(p => p.Value);
+
+            Console.WriteLine($"{message.Identity}: Sending updated routing table to connected clients: {string.Join(",", connectedClientIdentities)}.");
+            foreach (var connectedClient in connectedClients)
+            {
+                _ = connectedClient.SendAsync(encoded);
+            }
+
+            lock (Locks.LoggingLock)
+            {
+                Console.WriteLine("Routing Table:");
+                foreach (var pair in this.finalDistances)
+                {
+                    Console.WriteLine($"Routing table for {pair.Key}:");
+                    foreach (var fp in pair.Value)
+                    {
+                        Console.WriteLine($"\t{pair.Key} -> {fp.Key}: {fp.Value}");
+                    }
+                }
+            }
         }
 
         private bool AllClientsConnected()
