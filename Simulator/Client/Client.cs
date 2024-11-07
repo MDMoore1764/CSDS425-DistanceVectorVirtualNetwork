@@ -4,6 +4,7 @@ using Simulator.Messaging;
 using Simulator.ThreadLogger;
 using System;
 using System.Collections.Generic;
+using System.IO.Pipes;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -16,16 +17,6 @@ namespace Simulator.Client
 {
     internal class Client
     {
-        //private static readonly HashSet<char> AVAILABLE_IDENTITIES = [
-        //    'u',
-        //    'x',
-        //    'w',
-        //    'v',
-        //    'y',
-        //    'z'
-        //    ];
-
-
         private Dictionary<char, int> routerTable;
         private char identity;
 
@@ -52,6 +43,13 @@ namespace Simulator.Client
         }
 
         private Socket clientSocket;
+        /// <summary>
+        /// Join the server at the specified address and port.
+        /// </summary>
+        /// <param name="serverAddress">The address of the server.</param>
+        /// <param name="serverPort">The server port.</param>
+        /// <param name="clientPort">The port of this client.</param>
+        /// <returns></returns>
         public async Task JoinAsync(string serverAddress, int serverPort, int clientPort = 0)
         {
             var joinMessage = new JoinMessage(this.identity);
@@ -67,6 +65,11 @@ namespace Simulator.Client
             await this.clientSocket.SendAsync(encoded);
         }
 
+        /// <summary>
+        /// Listens for updates from the server, if connected.
+        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="InvalidOperationException">If the client has not joined the server.</exception>
         public async Task ListenForUpdatesAsync()
         {
             if (this.clientSocket == null || !this.clientSocket.Connected)
@@ -81,12 +84,7 @@ namespace Simulator.Client
 
             while (this.clientSocket.Connected)
             {
-                if(this.identity == 'z')
-                {
-                    Console.WriteLine("z");
-                }
-
-                //It's possible to receive multiple pending messages. Separate these into jtokens
+                //It's possible to have multiple pending messages. Separate these and handle each.
                 int nReceived = await clientSocket.ReceiveAsync(buffer);
                 var messages = Message.Decode(buffer[..nReceived]);
 
@@ -108,38 +106,40 @@ namespace Simulator.Client
             }
         }
 
-        private static object routerTableUpdateLock = new();
+        /// <summary>
+        /// Handles an update message received from the server, updating the client's routing table with the received distance vector.
+        /// </summary>
+        /// <param name="message"></param>
         private void HandleMessageReceivedAsync(UpdateMessage message)
         {
             Console.WriteLine($"Client {this.identity} - received update message from {message.Identity}.");
 
             var hasDistanceToSender = this.routerTable.TryGetValue(message.Identity, out var distanceToSender);
+
+            //Only accept messages claiming to be from this client (initialization message) and messages from clients to which we have a distance.
+            //If this code block is entered, something is implemented incorrectly at the server level.
             if (!hasDistanceToSender && message.Identity != this.identity)
             {
-                //ERROR?
-                return;
+                throw new Exception("Received message from client to which no distance is recorded.");
             }
 
-            if (this.identity == 'z')
-            {
-                Console.WriteLine("debug");
-            }
 
             bool routingTableUpdated = false;
-            foreach (var (destination, distance) in this.routerTable)
+            foreach (var (destination, currentDistance) in this.routerTable)
             {
                 var hasNewDistance = message.DistanceVector.TryGetValue(destination, out var newDistance);
 
                 //There's no distance known to that thing. Ignore this value.
                 if (!hasNewDistance || newDistance == Server.Server.DEFAULT_DISTANCE)
                 {
-
                     continue;
                 }
 
+                //The total distance to get to the destination is the distance from the sender to the destination plus the distance from this client to the sender.
                 var newTotalDistance = newDistance + distanceToSender;
 
-                if (IsLessThan(newTotalDistance, distance))
+                //Update our routing table if this new distance is shorter than the currently known distance, or if the currently tracked distance is the default distance.
+                if (IsLessThan(newTotalDistance, currentDistance))
                 {
                     this.routerTable[destination] = newTotalDistance;
 
@@ -156,6 +156,12 @@ namespace Simulator.Client
             }
         }
 
+        /// <summary>
+        /// Measures whether thingThatMightBeLessThan is less than thingThatMightBeGreaterThan. Accounts for the default distance value.
+        /// </summary>
+        /// <param name="thingThatMightBeLessThan">The value we are checking to see if less than the second value.</param>
+        /// <param name="thingThatMightBeGreaterThan">Teh value we are checking to see if is greater than the first value.</param>
+        /// <returns></returns>
         private static bool IsLessThan(int thingThatMightBeLessThan, int thingThatMightBeGreaterThan)
         {
             if (thingThatMightBeLessThan == Server.Server.DEFAULT_DISTANCE)
@@ -168,6 +174,7 @@ namespace Simulator.Client
                 return true;
             }
 
+            //This is <, not <=, because a shorter number of hops is preferred.
             return thingThatMightBeLessThan < thingThatMightBeGreaterThan;
         }
     }

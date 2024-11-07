@@ -1,14 +1,8 @@
-﻿
-
-//create server and let it listen.
-
-using Simulator.Client;
+﻿using Simulator.Client;
 using Simulator.Server;
 
-int serverPort = 8080;
-
-Server server = new Server(serverPort);
-
+Server server = new Server();
+int serverPort = server.GetPort() ?? throw new Exception("Server failed to start.");
 
 _ = server.AcceptClientsAsync();
 
