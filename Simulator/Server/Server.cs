@@ -32,6 +32,7 @@ namespace Simulator.Server
         private Dictionary<char, Dictionary<char, int>> initialDistances;
         private Dictionary<char, Dictionary<char, int>> finalDistances;
 
+
         private Socket serverSocket;
         public Server(int port = 0)
         {
@@ -51,8 +52,12 @@ namespace Simulator.Server
             }
 
             //Create the server TCP socket and bind it to the specified port.
+
+            IPAddress[] localIPs = Dns.GetHostAddresses(Dns.GetHostName());
+            IPAddress serverIP = localIPs.First(ip => ip.AddressFamily == AddressFamily.InterNetwork);
+
             this.serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            this.serverSocket.Bind(new IPEndPoint(IPAddress.Any, port));
+            this.serverSocket.Bind(new IPEndPoint(serverIP, port));
             this.serverSocket.Listen();
 
 
@@ -66,6 +71,16 @@ namespace Simulator.Server
             Console.WriteLine($"Server started at {endpoint.Address}:{endpoint.Port}");
         }
 
+
+        public IPAddress? GetAddress()
+        {
+            if (this.serverSocket == null)
+            {
+                return null;
+            }
+
+            return ((IPEndPoint)this.serverSocket.LocalEndPoint!).Address;
+        }
 
         public int? GetPort()
         {

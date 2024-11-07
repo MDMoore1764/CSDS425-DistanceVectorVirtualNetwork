@@ -42,6 +42,7 @@ namespace Simulator.Client
             }
         }
 
+        private const string LOCAL_HOST = "127.0.0.1";
         private Socket clientSocket;
         /// <summary>
         /// Join the server at the specified address and port.
@@ -50,15 +51,15 @@ namespace Simulator.Client
         /// <param name="serverPort">The server port.</param>
         /// <param name="clientPort">The port of this client.</param>
         /// <returns></returns>
-        public async Task JoinAsync(string serverAddress, int serverPort, int clientPort = 0)
+        public async Task JoinAsync(IPAddress serverAddress, int serverPort, int clientPort = 0)
         {
             var joinMessage = new JoinMessage(this.identity);
 
             this.clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
             this.clientSocket.Bind(new IPEndPoint(IPAddress.Any, clientPort));
 
             await this.clientSocket.ConnectAsync(serverAddress, serverPort);
-
 
             var encoded = joinMessage.Encode();
 
