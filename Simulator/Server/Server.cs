@@ -27,17 +27,15 @@ namespace Simulator.Server
         };
 
         private const string CONFIGURATION_FILE = "Server/Configuration/InitialDistances.json";
-        private System.Timers.Timer routingTablePrintoutTimer;
+        private const string OUTPUT_FILE = "Output/Distances.json";
         private Dictionary<char, Socket> connectedClients;
         private Dictionary<char, Dictionary<char, int>> initialDistances;
         private Dictionary<char, Dictionary<char, int>> finalDistances;
-
 
         private Socket serverSocket;
         public Server(int port = 0)
         {
             this.connectedClients = [];
-
 
             //Read the initial distances from the configuration file.
             var jsonString = File.ReadAllText(CONFIGURATION_FILE);
@@ -52,7 +50,6 @@ namespace Simulator.Server
             }
 
             //Create the server TCP socket and bind it to the specified port.
-
             IPAddress[] localIPs = Dns.GetHostAddresses(Dns.GetHostName());
             IPAddress serverIP = localIPs.First(ip => ip.AddressFamily == AddressFamily.InterNetwork);
 
@@ -62,9 +59,7 @@ namespace Simulator.Server
 
 
             //Begins a timer which will periodically print the latest routing table (every 5 seconds).
-            this.routingTablePrintoutTimer = new System.Timers.Timer(TimeSpan.FromSeconds(5).TotalMilliseconds);
-            routingTablePrintoutTimer.Elapsed += (a,b) => PrintDistanceTable();
-            routingTablePrintoutTimer.Start();
+
 
 
             var endpoint = (IPEndPoint)this.serverSocket.LocalEndPoint!;
@@ -84,7 +79,7 @@ namespace Simulator.Server
 
         public int? GetPort()
         {
-            if(this.serverSocket == null)
+            if (this.serverSocket == null)
             {
                 return null;
             }
@@ -92,24 +87,32 @@ namespace Simulator.Server
             return ((IPEndPoint)this.serverSocket.LocalEndPoint!).Port;
         }
 
+        private object outputFileLock = new object();
         /// <summary>
-        /// Prints the current routing table to the console.
+        /// Prints the current routing table to the output file.
         /// </summary>
-        private void PrintDistanceTable()
+        private void WriteDistanceTable()
         {
-            Console.WriteLine("Routing Table:");
-            foreach (var pair in this.finalDistances)
+            try
             {
-                Console.WriteLine($"Routing table for {pair.Key}:");
-                foreach (var fp in pair.Value)
-                {
-                    Console.WriteLine($"\t{pair.Key} -> {fp.Key}: {fp.Value}");
-                }
+                Monitor.Enter(outputFileLock);
+                Directory.CreateDirectory(Path.GetDirectoryName(OUTPUT_FILE)!);
+                var table = JsonConvert.SerializeObject(this.finalDistances, Formatting.Indented);
+                File.WriteAllText(OUTPUT_FILE, table);
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+            finally
+            {
+                Monitor.Exit(outputFileLock);
             }
         }
 
 
         public static readonly int WINDOW_SIZE = short.MaxValue;
+
         public Task AcceptClientsAsync(CancellationToken cancellationToken = default)
         {
             //Create accept loop in separate thread.
@@ -230,6 +233,8 @@ namespace Simulator.Server
             {
                 await connectedClient.SendAsync(encoded);
             }
+
+            WriteDistanceTable();
         }
 
         /// <summary>
