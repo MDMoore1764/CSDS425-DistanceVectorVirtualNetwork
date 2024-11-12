@@ -1,17 +1,6 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using Simulator.Messaging;
-using Simulator.ThreadLogger;
-using System;
-using System.Collections.Generic;
-using System.IO.Pipes;
-using System.Linq;
+﻿using Simulator.Messaging;
 using System.Net;
 using System.Net.Sockets;
-using System.Reflection.Emit;
-using System.Text;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 
 namespace Simulator.Client
 {
@@ -43,7 +32,8 @@ namespace Simulator.Client
         }
 
         private const string LOCAL_HOST = "127.0.0.1";
-        private Socket clientSocket;
+        private Socket? clientSocket;
+        
         /// <summary>
         /// Join the server at the specified address and port.
         /// </summary>
@@ -153,7 +143,7 @@ namespace Simulator.Client
                 var updateMessage = new UpdateMessage(this.identity, this.routerTable);
                 var encoded = updateMessage.Encode();
 
-                _ = this.clientSocket.SendAsync(encoded);
+                _ = this.clientSocket?.SendAsync(encoded);
             }
         }
 

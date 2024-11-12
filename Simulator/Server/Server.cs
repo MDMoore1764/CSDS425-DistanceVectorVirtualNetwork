@@ -1,15 +1,7 @@
 ﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using Simulator.Messaging;
-using Simulator.ThreadLogger;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
-using System.Threading.Tasks;
-using System.Timers;
 
 namespace Simulator.Server
 {
@@ -56,11 +48,6 @@ namespace Simulator.Server
             this.serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             this.serverSocket.Bind(new IPEndPoint(serverIP, port));
             this.serverSocket.Listen();
-
-
-            //Begins a timer which will periodically print the latest routing table (every 5 seconds).
-
-
 
             var endpoint = (IPEndPoint)this.serverSocket.LocalEndPoint!;
             Console.WriteLine($"Server started at {endpoint.Address}:{endpoint.Port}");
